@@ -1,115 +1,131 @@
+// controllers/authController.js
+
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-
-exports.signup = async (req, res) => {
-
+// ----------------- SIGNUP -----------------
+const signup = async (req, res) => {
   try {
-
     const { name, email, password, role } = req.body;
 
+    // Check if user exists
     const existingUser = await User.findOne({ email });
-
     if (existingUser) {
       return res.status(400).json({ message: "User already exists" });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
-    const user = new User({
+    // Create new user
+    const user = await User.create({
       name,
       email,
       password: hashedPassword,
-      role
+      role: role || "user", // default to user
     });
-
-    await user.save();
 
     res.status(201).json({
-      message: "User registered successfully"
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      createdAt: user.createdAt,
     });
-
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ message: "Server error" });
   }
-
 };
 
-
-
-exports.login = async (req, res) => {
-
+// ----------------- LOGIN -----------------
+const login = async (req, res) => {
   try {
-
     const { email, password } = req.body;
 
+    // Find user
     const user = await User.findOne({ email });
-
     if (!user) {
-      return res.status(400).json({ message: "User not found" });
+      return res.status(400).json({ message: "Invalid credentials" });
     }
 
+    // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
-
     if (!isMatch) {
-      return res.status(400).json({ message: "Invalid password" });
+      return res.status(400).json({ message: "Invalid credentials" });
     }
 
+    // Generate JWT
     const token = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET,
-      { expiresIn: "1d" }
+      { expiresIn: "7d" }
     );
 
     res.json({
-      message: "Login successful",
+      success: true,
       token,
-      user
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
     });
-
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ message: "Server error" });
   }
-
 };
 
-
-
-exports.profile = async (req, res) => {
-
+// ----------------- PROFILE -----------------
+const profile = async (req, res) => {
   try {
-
     const user = await User.findById(req.user.id).select("-password");
-
+    if (!user) return res.status(404).json({ message: "User not found" });
     res.json(user);
-
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ message: "Server error" });
   }
-
 };
 
-
-
-exports.checkUser = (req, res) => {
-
+// ----------------- CHECK USER -----------------
+const checkUser = async (req, res) => {
   if (req.user.role === "user") {
-    return res.json({ message: "User access granted" });
+    res.json({ message: "You are a user" });
+  } else {
+    res.status(403).json({ message: "Not a regular user" });
   }
-
-  res.status(403).json({ message: "Not a user" });
-
 };
 
-
-
-exports.checkAdmin = (req, res) => {
-
+// ----------------- CHECK ADMIN -----------------
+const checkAdmin = async (req, res) => {
   if (req.user.role === "admin") {
-    return res.json({ message: "Admin access granted" });
+    res.json({ message: "You are an admin" });
+  } else {
+    res.status(403).json({ message: "Not an admin" });
   }
+};
 
-  res.status(403).json({ message: "Admin access required" });
+// ----------------- GET ALL USERS (ADMIN ONLY) -----------------
+const getAllUsers = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Access denied" });
+    }
 
+    const users = await User.find().select("-password"); // Exclude passwords
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+module.exports = {
+  signup,
+  login,
+  profile,
+  checkUser,
+  checkAdmin,
+  getAllUsers,
 };
